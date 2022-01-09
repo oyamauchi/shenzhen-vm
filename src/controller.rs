@@ -6,19 +6,14 @@ use crate::scheduler::{Scheduler, SleepMessage, SleepToken};
 
 /// A controller's state that persists across repeated executions of its body closure.
 #[derive(Debug)]
-pub struct State {
+pub struct Regs {
   pub acc: i32,
   pub dat: i32,
 }
 
-#[derive(Debug)]
-pub struct Controller<T>
-where
-  T: FnMut(&mut State) -> Result<(), ()> + Send + 'static,
-{
-  pub name: &'static str,
-  pub state: State,
-  pub execute: T,
+pub trait Controller {
+  fn name(&self) -> &'static str;
+  fn execute(&self, _: &mut Regs) -> Result<(), ()>;
 }
 
 thread_local! {
@@ -42,41 +37,32 @@ pub fn send_to_scheduler(message: SleepMessage) {
   })
 }
 
-/// Represents a controller (a component with code) in the game.
-impl<T> Controller<T>
-where
-  T: FnMut(&mut State) -> Result<(), ()> + Send + 'static,
-{
-  pub fn new(name: &'static str, execute: T) -> Controller<T> {
-    Controller {
-      name,
-      state: State { acc: 0, dat: 0 },
-      execute,
-    }
-  }
+pub fn start(
+  ctrl: Box<dyn Controller + Send>,
+  sender: Sender<SleepMessage>,
+) -> thread::JoinHandle<()> {
+  thread::Builder::new()
+    .name(ctrl.name().into())
+    .spawn(move || {
+      // Set up thread-local state
+      CONTROLLER_NAME.with(|cell| *cell.borrow_mut() = ctrl.name());
+      SENDER.with(|cell| {
+        cell.borrow_mut().write(sender);
+      });
 
-  pub fn start(mut ctrl: Controller<T>, sender: Sender<SleepMessage>) -> thread::JoinHandle<()> {
-    thread::Builder::new()
-      .name(ctrl.name.into())
-      .spawn(move || {
-        // Set up thread-local state
-        CONTROLLER_NAME.with(|cell| *cell.borrow_mut() = ctrl.name);
-        SENDER.with(|cell| {
-          cell.borrow_mut().write(sender);
-        });
+      // Don't start executing the body until the first advance() call
+      Scheduler::sleep(SleepToken::Time(0)).unwrap();
 
-        // Don't start executing the body until the first advance() call
-        Scheduler::sleep(SleepToken::Time(0)).unwrap();
+      let mut state = Regs { acc: 0, dat: 0 };
 
-        loop {
-          match (ctrl.execute)(&mut ctrl.state) {
-            Ok(_) => (),
-            Err(_) => break,
-          }
+      loop {
+        match ctrl.execute(&mut state) {
+          Ok(_) => (),
+          Err(_) => break,
         }
-      })
-      .unwrap()
-  }
+      }
+    })
+    .unwrap()
 }
 
 #[macro_export]
@@ -106,7 +92,7 @@ macro_rules! dst {
 
 #[macro_export]
 macro_rules! gen {
-  ($pin:ident, $on_steps:expr, $off_steps:expr) => {
+  ($pin:expr, $on_steps:expr, $off_steps:expr) => {
     if $on_steps > 0 {
       $pin.store(100, Ordering::Relaxed);
       sleep($on_steps)?;

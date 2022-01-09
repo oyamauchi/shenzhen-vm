@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 
 use shenzhen_vm::components::{inputsource, memory};
-use shenzhen_vm::controller::Controller;
+use shenzhen_vm::controller::{Controller, Regs};
 use shenzhen_vm::scheduler::{sleep, Scheduler};
 use shenzhen_vm::xbus::XBus;
 use shenzhen_vm::{dgt, dst, rd};
@@ -30,68 +30,57 @@ fn get_input() -> Vec<(i32, i32, i32)> {
   ]
 }
 
-fn main() {
-  // Input
-  let (radio, radio_bus) = inputsource::nonblocking();
-  let ram = memory::ram();
-  let a0 = ram.addr0.clone();
-  let a1 = ram.addr1.clone();
-  let d1 = ram.data1.clone();
-
-  // Output
-  let harvest = Arc::new(AtomicI32::new(0));
-  let motor_x = Arc::new(AtomicI32::new(0));
-  let motor_y = Arc::new(AtomicI32::new(0));
-
-  let harvest_out = harvest.clone();
-  let x_out = motor_x.clone();
-  let y_out = motor_y.clone();
-
-  let to_peeker = XBus::new();
-  let from_input_converter = to_peeker.clone();
-
-  let to_splitter = XBus::new();
-  let from_peeker = to_splitter.clone();
-
-  let searcher_io = XBus::new();
-  let to_searcher = searcher_io.clone();
-
-  let motor_x_io = XBus::new();
-  let to_motor_x = motor_x_io.clone();
-
-  let motor_y_io = XBus::new();
-  let to_motor_y = motor_y_io.clone();
-
-  // Read two consecutive inputs from the radio, pack them into a single int, and write them into
-  // RAM at the write pointer. Send the updated write pointer to the Peeker.
-  let input_converter = Controller::new("input_converter", move |reg| {
-    reg.acc = radio_bus.read()?;
+/// Read two consecutive inputs from the radio, pack them into a single int, and write them into
+/// RAM at the write pointer. Send the updated write pointer to the Peeker.
+struct InputConverter {
+  radio_bus: XBus,
+  ram_write_data: XBus,
+  ram_write_addr: XBus,
+  to_peeker: XBus,
+}
+impl Controller for InputConverter {
+  fn name(&self) -> &'static str {
+    "input-converter"
+  }
+  fn execute(&self, reg: &mut Regs) -> Result<(), ()> {
+    reg.acc = self.radio_bus.read()?;
     if reg.acc != -999 {
       reg.acc *= 10;
-      reg.acc += radio_bus.read()?;
-      ram.data0.write(reg.acc)?;
+      reg.acc += self.radio_bus.read()?;
+      self.ram_write_data.write(reg.acc)?;
     }
-    to_peeker.write(ram.addr0.read()?)?;
+    self.to_peeker.write(self.ram_write_addr.read()?)?;
     sleep(1)?;
 
     Ok(())
-  });
+  }
+}
 
-  // Peeker peeks the head of the queue in RAM. It finds the first nonzero entry at or after the
-  // original read pointer, sets the read pointer to point to it, and sends the value to Splitter.
-  let peeker = Controller::new("peeker", move |reg| {
-    from_input_converter.sleep()?;
-    reg.acc = from_input_converter.read()?;
+/// Peeker peeks the head of the queue in RAM. It finds the first nonzero entry at or after the
+/// original read pointer, sets the read pointer to point to it, and sends the value to Splitter.
+struct Peeker {
+  from_input_converter: XBus,
+  ram_read_addr: XBus,
+  ram_read_data: XBus,
+  to_splitter: XBus,
+}
+impl Controller for Peeker {
+  fn name(&self) -> &'static str {
+    "peeker"
+  }
+  fn execute(&self, reg: &mut Regs) -> Result<(), ()> {
+    self.from_input_converter.sleep()?;
+    reg.acc = self.from_input_converter.read()?;
 
     // In-game, you accomplish this with clever use of conditional execution.
     let mut flag = true;
-    while ram.addr1.read()? != reg.acc {
-      reg.dat = ram.data1.read()?;
+    while self.ram_read_addr.read()? != reg.acc {
+      reg.dat = self.ram_read_data.read()?;
       if reg.dat != 0 {
         flag = false;
-        reg.acc = ram.addr1.read()?;
+        reg.acc = self.ram_read_addr.read()?;
         reg.acc -= 1;
-        ram.addr1.write(reg.acc)?;
+        self.ram_read_addr.write(reg.acc)?;
         break;
       }
     }
@@ -101,18 +90,29 @@ fn main() {
       reg.dat = 0;
     }
 
-    to_splitter.write(reg.dat)?;
+    self.to_splitter.write(reg.dat)?;
     Ok(())
-  });
+  }
+}
 
-  // Splitter takes the destination from Peeker, splits it into x and y components, and sends those
-  // to the motor controllers. It keeps track of the current position, and after updating it, sends
-  // it to Searcher.
-  let splitter = Controller::new("splitter", move |reg| {
-    from_peeker.sleep()?;
+/// Splitter takes the destination from Peeker, splits it into x and y components, and sends those
+/// to the motor controllers. It keeps track of the current position, and after updating it, sends
+/// it to Searcher.
+struct Splitter {
+  from_peeker: XBus,
+  to_motor_x: XBus,
+  to_motor_y: XBus,
+  to_searcher: XBus,
+}
+impl Controller for Splitter {
+  fn name(&self) -> &'static str {
+    "splitter"
+  }
+  fn execute(&self, reg: &mut Regs) -> Result<(), ()> {
+    self.from_peeker.sleep()?;
 
     // dat is destination. acc is current position.
-    reg.dat = from_peeker.read()?;
+    reg.dat = self.from_peeker.read()?;
 
     if reg.dat == 0 {
       // Queue was empty. Pretend current position is the destination so that motors stop.
@@ -124,121 +124,177 @@ fn main() {
     }
 
     dgt!(reg.acc, 1);
-    to_motor_x.write(reg.acc)?;
+    self.to_motor_x.write(reg.acc)?;
     dst!(reg.acc, 0, reg.dat);
-    to_motor_y.write(reg.acc)?;
+    self.to_motor_y.write(reg.acc)?;
 
-    dst!(reg.acc, 1, to_motor_x.read()?);
-    dst!(reg.acc, 0, to_motor_y.read()?);
+    dst!(reg.acc, 1, self.to_motor_x.read()?);
+    dst!(reg.acc, 0, self.to_motor_y.read()?);
 
     if reg.dat == 0 {
-      to_searcher.write(999)?;
+      self.to_searcher.write(999)?;
     } else {
-      to_searcher.write(reg.acc)?;
+      self.to_searcher.write(reg.acc)?;
     }
 
     Ok(())
-  });
+  }
+}
 
-  // Searcher takes the current position from Splitter, searches the queue for it, and sets the
-  // harvest output appropriately.
-  let searcher = Controller::new("searcher", move |reg| {
-    searcher_io.sleep()?;
-    reg.acc = searcher_io.read()?;
-    reg.dat = a1.read()?;
+/// Searcher takes the current position from Splitter, searches the queue for it, and sets the
+/// harvest output appropriately.
+struct Searcher {
+  io: XBus,
+  ram_read_addr: XBus,
+  ram_read_data: XBus,
+  ram_write_addr: XBus,
+  harvest: Arc<AtomicI32>,
+}
+impl Controller for Searcher {
+  fn name(&self) -> &'static str {
+    "searcher"
+  }
+  fn execute(&self, reg: &mut Regs) -> Result<(), ()> {
+    self.io.sleep()?;
+    reg.acc = self.io.read()?;
+    reg.dat = self.ram_read_addr.read()?;
 
-    harvest.store(0, Ordering::Relaxed);
+    self.harvest.store(0, Ordering::Relaxed);
 
     loop {
-      if reg.acc == d1.read()? {
+      if reg.acc == self.ram_read_data.read()? {
         // Found the value. Go back and overwrite it with zero.
-        reg.acc = a1.read()?;
+        reg.acc = self.ram_read_addr.read()?;
         reg.acc -= 1;
-        a1.write(reg.acc)?;
-        d1.write(0)?;
-        harvest.store(100, Ordering::Relaxed);
+        self.ram_read_addr.write(reg.acc)?;
+        self.ram_read_data.write(0)?;
+        self.harvest.store(100, Ordering::Relaxed);
         break;
       }
 
       // Stop once we hit the write pointer.
-      if a1.read()? == a0.read()? {
+      if self.ram_read_addr.read()? == self.ram_write_addr.read()? {
         break;
       }
     }
 
-    a1.write(reg.dat)?;
+    self.ram_read_addr.write(reg.dat)?;
 
     Ok(())
-  });
-
-  // Each motor controller takes in the x or y component of the current position from Splitter,
-  // determines which direction to move and sets the output accordingly. It tracks the position
-  // in acc and sends it back to Splitter.
-  macro_rules! motor_controller {
-    ($name:literal, $io:ident, $output:ident) => {
-      Controller::new($name, move |reg| {
-        $io.sleep()?;
-
-        let input = $io.read()?;
-        let compare = input.cmp(&reg.acc);
-        $output.store(50, Ordering::Relaxed);
-
-        // Do this with tcp
-        match compare {
-          std::cmp::Ordering::Equal => (),
-          std::cmp::Ordering::Greater => {
-            $output.store(100, Ordering::Relaxed);
-            reg.acc += 1;
-          }
-          std::cmp::Ordering::Less => {
-            $output.store(0, Ordering::Relaxed);
-            reg.acc -= 1;
-          }
-        }
-
-        $io.write(reg.acc)?;
-
-        Ok(())
-      })
-    };
   }
+}
 
-  let motor_controller_x = motor_controller!("motor-x", motor_x_io, motor_x);
-  let motor_controller_y = motor_controller!("motor-y", motor_y_io, motor_y);
+/// Each motor controller takes in the x or y component of the current position from Splitter,
+/// determines which direction to move and sets the output accordingly. It tracks the position
+/// in acc and sends it back to Splitter.
+struct MotorController {
+  name: &'static str,
+  io: XBus,
+  output: Arc<AtomicI32>,
+}
+impl Controller for MotorController {
+  fn name(&self) -> &'static str {
+    self.name
+  }
+  fn execute(&self, reg: &mut Regs) -> Result<(), ()> {
+    self.io.sleep()?;
 
-  let (sender, mut scheduler) = Scheduler::new(6);
+    let input = self.io.read()?;
+    let compare = input.cmp(&reg.acc);
+    self.output.store(50, Ordering::Relaxed);
 
-  let join_handles = [
-    Controller::start(input_converter, sender.clone()),
-    Controller::start(peeker, sender.clone()),
-    Controller::start(searcher, sender.clone()),
-    Controller::start(splitter, sender.clone()),
-    Controller::start(motor_controller_x, sender.clone()),
-    Controller::start(motor_controller_y, sender),
-  ];
+    // Do this with tcp
+    match compare {
+      std::cmp::Ordering::Equal => (),
+      std::cmp::Ordering::Greater => {
+        self.output.store(100, Ordering::Relaxed);
+        reg.acc += 1;
+      }
+      std::cmp::Ordering::Less => {
+        self.output.store(0, Ordering::Relaxed);
+        reg.acc -= 1;
+      }
+    }
+
+    self.io.write(reg.acc)?;
+
+    Ok(())
+  }
+}
+
+fn main() {
+  // Input
+  let (radio, radio_bus) = inputsource::nonblocking();
+
+  // Output
+  let harvest = Arc::new(AtomicI32::new(0));
+  let motor_x = Arc::new(AtomicI32::new(0));
+  let motor_y = Arc::new(AtomicI32::new(0));
+
+  // Internal
+  let ram = memory::ram();
+  let input_to_peeker = XBus::new();
+  let peeker_to_splitter = XBus::new();
+  let searcher_io = XBus::new();
+  let motor_x_io = XBus::new();
+  let motor_y_io = XBus::new();
+
+  let mut scheduler = Scheduler::new(vec![
+    Box::new(InputConverter {
+      radio_bus,
+      ram_write_data: ram.data0,
+      ram_write_addr: ram.addr0.clone(),
+      to_peeker: input_to_peeker.clone(),
+    }),
+    Box::new(Peeker {
+      from_input_converter: input_to_peeker,
+      ram_read_addr: ram.addr1.clone(),
+      ram_read_data: ram.data1.clone(),
+      to_splitter: peeker_to_splitter.clone(),
+    }),
+    Box::new(Searcher {
+      io: searcher_io.clone(),
+      ram_read_addr: ram.addr1,
+      ram_read_data: ram.data1,
+      ram_write_addr: ram.addr0,
+      harvest: harvest.clone(),
+    }),
+    Box::new(Splitter {
+      from_peeker: peeker_to_splitter,
+      to_motor_x: motor_x_io.clone(),
+      to_motor_y: motor_y_io.clone(),
+      to_searcher: searcher_io,
+    }),
+    Box::new(MotorController {
+      name: "motor-x",
+      io: motor_x_io,
+      output: motor_x.clone(),
+    }),
+    Box::new(MotorController {
+      name: "motor-y",
+      io: motor_y_io,
+      output: motor_y.clone(),
+    }),
+  ]);
 
   let input = get_input();
 
   for (wait, xin, yin) in input.iter() {
     for _ in 0..wait - 1 {
       scheduler.advance();
-      println!("{:3} {:3} {:3}", rd!(x_out), rd!(y_out), rd!(harvest_out));
+      println!("{:3} {:3} {:3}", rd!(motor_x), rd!(motor_y), rd!(harvest));
     }
 
     radio.inject(*xin);
     radio.inject(*yin);
     scheduler.advance();
-    println!("{:3} {:3} {:3}", rd!(x_out), rd!(y_out), rd!(harvest_out));
+    println!("{:3} {:3} {:3}", rd!(motor_x), rd!(motor_y), rd!(harvest));
   }
 
   for _ in 0..12 {
     scheduler.advance();
-    println!("{:3} {:3} {:3}", rd!(x_out), rd!(y_out), rd!(harvest_out));
+    println!("{:3} {:3} {:3}", rd!(motor_x), rd!(motor_y), rd!(harvest));
   }
 
   scheduler.end();
-
-  for jh in join_handles.into_iter() {
-    jh.join().unwrap();
-  }
 }

@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crate::controller::{current_name, send_to_scheduler};
+use crate::controller::{current_name, send_to_scheduler, start, Controller};
 use crate::xbus::XBus;
 
 pub enum SleepToken {
@@ -35,7 +36,7 @@ pub type SleepMessage = (&'static str, SleepToken, Sender<bool>);
 
 pub struct Scheduler {
   time: i32,
-  controller_count: usize,
+  join_handles: Vec<JoinHandle<()>>,
   receiver: Receiver<SleepMessage>,
   sleepers: HashMap<&'static str, (SleepToken, Sender<bool>)>,
 }
@@ -55,11 +56,9 @@ impl Scheduler {
     let (wakeup_sender, wakeup_receiver) = channel();
     let name = current_name();
 
-    // println!("{} going to sleep", name);
     send_to_scheduler((name, token, wakeup_sender));
 
     let keep_going = wakeup_receiver.recv().unwrap();
-    // println!("{} woke up; keep_going = {}", name, keep_going);
 
     if keep_going {
       Ok(())
@@ -68,21 +67,21 @@ impl Scheduler {
     }
   }
 
-  /// Create a new scheduler. It needs to know how many controllers it is scheduling, so that it
-  /// can tell when all controllers have gone to sleep.
-  ///
-  /// Returns the sender of a channel that controller threads should use to communicate with the
-  /// scheduler, plus the scheduler itself.
-  pub fn new(controller_count: usize) -> (Sender<SleepMessage>, Scheduler) {
+  /// Create a new scheduler of the given controllers. All the controller threads will be given a
+  /// `Sender` to send sleep messages to the scheduler, and the threads will be started.
+  pub fn new(controllers: Vec<Box<dyn Controller + Send>>) -> Scheduler {
     let (sender, receiver) = channel();
-    let scheduler = Scheduler {
-      time: 0,
-      controller_count,
-      receiver,
-      sleepers: HashMap::with_capacity(controller_count),
-    };
+    let join_handles: Vec<JoinHandle<()>> = controllers
+      .into_iter()
+      .map(|ctrl| start(ctrl, sender.clone()))
+      .collect();
 
-    (sender, scheduler)
+    Scheduler {
+      time: 0,
+      receiver,
+      sleepers: HashMap::with_capacity(join_handles.len()),
+      join_handles,
+    }
   }
 
   /// Wait until we've heard from `expected_count` controllers over the channel, storing their
@@ -104,7 +103,6 @@ impl Scheduler {
         tok => tok,
       };
 
-      // println!("{} sleeping: {:?}", name, real_token);
       self.sleepers.insert(name, (real_token, wakeup));
       receive_count += 1;
     }
@@ -122,14 +120,12 @@ impl Scheduler {
     if self.time == 0 {
       // If this is the first timestep, wait until we've populated "sleepers" by waiting until all
       // controllers have reached their initial sleep.
-      self.await_sleepers(self.controller_count);
+      self.await_sleepers(self.join_handles.len());
     }
 
     self.time += 1;
-    // println!("starting advance; time is now {}", self.time);
 
     let mut run_count = 1;
-
     while run_count > 0 {
       run_count = 0;
 
@@ -142,12 +138,8 @@ impl Scheduler {
         };
 
         if can_run {
-          // println!("waking up {}", name);
           wakeup.send(true).unwrap();
-
           run_count += 1;
-        } else {
-          // println!("{} not runnable", name);
         }
       }
 
@@ -170,19 +162,19 @@ impl Scheduler {
         self.sleepers
       );
     }
-
-    // println!("call to advance returning");
   }
 
   /// Tell all controller threads to terminate. This function does not actually wait for the
   /// threads to terminate, so the caller should join() the threads if it cares about this.
-  pub fn end(&mut self) {
-    // println!("calling end");
+  pub fn end(mut self) {
     self.time = -1;
 
     for (_name, (_, wakeup)) in self.sleepers.iter() {
-      // println!("sending end signal to {}", name);
       wakeup.send(false).unwrap();
+    }
+
+    for jh in self.join_handles.into_iter() {
+      jh.join().unwrap();
     }
   }
 }
