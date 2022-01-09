@@ -4,16 +4,16 @@ use std::sync::{Arc, Mutex};
 use crate::xbus::{TSink, TSource, XBus};
 
 struct AddrPin {
-  mem: Arc<Mutex<Memory>>,
+  mem: Arc<Mutex<MemInner>>,
   index: usize,
 }
 
 struct DataPin {
-  mem: Arc<Mutex<Memory>>,
+  mem: Arc<Mutex<MemInner>>,
   index: usize,
 }
 
-struct Memory {
+struct MemInner {
   contents: [i32; 14],
   pointers: [usize; 2],
 }
@@ -65,15 +65,22 @@ impl TSink for AddrPin {
   }
 }
 
-pub struct MemoryPins {
+/// Represents a RAM or ROM module.
+///
+/// Internally, there's an array of 14 ints for the contents, and two indexes into that array.
+/// `addr0` and `addr1` read and write those two indexes. `data0` and `data1` read the contents at
+/// those two indexes respectively, and in RAMs only, write to the contents array at those two
+/// indexes. Any read from, or write to, a data bus increments the corresponding index by 1
+/// (wrapping around to zero when incremented past 13).
+pub struct Memory {
   pub addr0: XBus,
   pub addr1: XBus,
   pub data0: XBus,
   pub data1: XBus,
-  mem: Arc<Mutex<Memory>>,
+  mem: Arc<Mutex<MemInner>>,
 }
 
-impl Debug for MemoryPins {
+impl Debug for Memory {
   fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     let mem = self.mem.lock().unwrap();
     let make_cell = |index, fmt: &mut std::fmt::Formatter<'_>| {
@@ -95,9 +102,11 @@ impl Debug for MemoryPins {
   }
 }
 
-pub fn rom(contents: [i32; 14]) -> MemoryPins {
+/// Create a ROM. The data pins don't have sinks connected, only sources, so writes to them will
+/// block forever unless there's something else reading from the same bus.
+pub fn rom(contents: [i32; 14]) -> Memory {
   let (addr0, addr1, data0, data1) = (XBus::new(), XBus::new(), XBus::new(), XBus::new());
-  let mem = Arc::new(Mutex::new(Memory {
+  let mem = Arc::new(Mutex::new(MemInner {
     contents,
     pointers: [0, 0],
   }));
@@ -127,7 +136,7 @@ pub fn rom(contents: [i32; 14]) -> MemoryPins {
   data0.connect_source(d0);
   data1.connect_source(d1);
 
-  MemoryPins {
+  Memory {
     addr0,
     addr1,
     data0,
@@ -136,9 +145,10 @@ pub fn rom(contents: [i32; 14]) -> MemoryPins {
   }
 }
 
-pub fn ram() -> MemoryPins {
+/// Create a RAM, initialized to all zeros.
+pub fn ram() -> Memory {
   let (addr0, addr1, data0, data1) = (XBus::new(), XBus::new(), XBus::new(), XBus::new());
-  let mem = Arc::new(Mutex::new(Memory {
+  let mem = Arc::new(Mutex::new(MemInner {
     contents: [0; 14],
     pointers: [0, 0],
   }));
@@ -170,7 +180,7 @@ pub fn ram() -> MemoryPins {
   data1.connect_source(Arc::clone(&d1) as Arc<DataPin>);
   data1.connect_sink(d1);
 
-  MemoryPins {
+  Memory {
     addr0,
     addr1,
     data0,

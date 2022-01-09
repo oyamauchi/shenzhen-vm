@@ -21,7 +21,7 @@ fn main() {
 
   let transfer = XBus::new();
 
-  let expander = expander::new(Some(p0.clone()), Some(p1.clone()), Some(p2.clone()));
+  let expander_bus = expander::new(Some(p0.clone()), Some(p1.clone()), Some(p2.clone()));
 
   struct Main {
     keypad_bus: XBus,
@@ -86,13 +86,13 @@ fn main() {
       keypad_bus,
       rom_addr: rom.addr0,
       to_outputter: transfer.clone(),
-      to_expander: expander.x0,
+      to_expander: expander_bus.clone(),
       extrude: extrude.clone(),
     }),
     Box::new(Outputter {
       from_main: transfer,
       rom_data: rom.data0,
-      to_expander: expander.x1,
+      to_expander: expander_bus,
     }),
   ]);
 

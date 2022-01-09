@@ -9,28 +9,29 @@ struct Expander {
   p2: Option<Arc<AtomicI32>>,
 }
 
-pub struct ExpanderPins {
-  pub x0: XBus,
-  pub x1: XBus,
-  pub x2: XBus,
-}
-
+/// Creates an expander, the component that converts between XBus I/O and three simple I/O pins.
+///
+/// When writing to the XBus, each simple pin is set to 100 if the corresponding digit of the XBus
+/// value is nonzero, or 0 otherwise. (p2 = hundreds digit, p1 = tens, p0 = ones.) The sign of the
+/// XBus value is ignored.
+///
+/// When reading from the XBus, each digit is 1 if the corresponding simple pin's value is >= 50,
+/// or 0 otherwise.
+///
+/// This just returns a single XBus, even though the in-game component has three XBus pins. They
+/// all do exactly the same thing, so the effect is the same as if there were just a single XBus
+/// pin.
 pub fn new(
   p0: Option<Arc<AtomicI32>>,
   p1: Option<Arc<AtomicI32>>,
   p2: Option<Arc<AtomicI32>>,
-) -> ExpanderPins {
-  let (x0, x1, x2) = (XBus::new(), XBus::new(), XBus::new());
-
+) -> XBus {
+  let xbus = XBus::new();
   let expander = Arc::new(Expander { p0, p1, p2 });
-  x0.connect_sink(Arc::clone(&expander) as Arc<Expander>);
-  x1.connect_sink(Arc::clone(&expander) as Arc<Expander>);
-  x2.connect_sink(Arc::clone(&expander) as Arc<Expander>);
-  x0.connect_source(Arc::clone(&expander) as Arc<Expander>);
-  x1.connect_source(Arc::clone(&expander) as Arc<Expander>);
-  x2.connect_source(Arc::clone(&expander) as Arc<Expander>);
+  xbus.connect_sink(Arc::clone(&expander) as Arc<Expander>);
+  xbus.connect_source(expander);
 
-  ExpanderPins { x0, x1, x2 }
+  xbus
 }
 
 impl TSource for Expander {
@@ -39,24 +40,12 @@ impl TSource for Expander {
   }
 
   fn read(&self) -> i32 {
-    let is_high = |atom: &Arc<AtomicI32>| atom.load(Ordering::Relaxed) >= 50;
+    let to_bit = |atom: &Arc<AtomicI32>| (atom.load(Ordering::Relaxed) >= 50) as i32;
     let mut total = 0;
 
-    total += if self.p2.as_ref().map_or(false, is_high) {
-      100
-    } else {
-      0
-    };
-    total += if self.p1.as_ref().map_or(false, is_high) {
-      10
-    } else {
-      0
-    };
-    total += if self.p0.as_ref().map_or(false, is_high) {
-      1
-    } else {
-      0
-    };
+    total += 100 * self.p2.as_ref().map_or(0, to_bit);
+    total += 10 * self.p1.as_ref().map_or(0, to_bit);
+    total += self.p0.as_ref().map_or(0, to_bit);
 
     total
   }
