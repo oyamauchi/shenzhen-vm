@@ -1,3 +1,4 @@
+use std::fmt::{Debug, Write};
 use std::sync::{Arc, Mutex};
 
 use crate::xbus::{TSink, TSource, XBus};
@@ -69,6 +70,29 @@ pub struct MemoryPins {
   pub addr1: XBus,
   pub data0: XBus,
   pub data1: XBus,
+  mem: Arc<Mutex<Memory>>,
+}
+
+impl Debug for MemoryPins {
+  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    let mem = self.mem.lock().unwrap();
+    let make_cell = |index, fmt: &mut std::fmt::Formatter<'_>| {
+      let left_arrow = if index == mem.pointers[0] { ">" } else { " " };
+      let right_arrow = if index == mem.pointers[1] { "<" } else { " " };
+      fmt.write_fmt(format_args!(
+        "[ {} {:2} {} ]",
+        left_arrow, mem.contents[index], right_arrow
+      ))
+    };
+
+    for i in 0..7 {
+      make_cell(i, f)?;
+      make_cell(i + 7, f)?;
+      f.write_char('\n')?;
+    }
+
+    Ok(())
+  }
 }
 
 pub fn rom(contents: [i32; 14]) -> MemoryPins {
@@ -108,6 +132,7 @@ pub fn rom(contents: [i32; 14]) -> MemoryPins {
     addr1,
     data0,
     data1,
+    mem,
   }
 }
 
@@ -150,5 +175,6 @@ pub fn ram() -> MemoryPins {
     addr1,
     data0,
     data1,
+    mem,
   }
 }
