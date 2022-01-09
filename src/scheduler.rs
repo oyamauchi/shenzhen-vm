@@ -70,18 +70,23 @@ impl Scheduler {
   /// Create a new scheduler of the given controllers. All the controller threads will be given a
   /// `Sender` to send sleep messages to the scheduler, and the threads will be started.
   pub fn new(controllers: Vec<Box<dyn Controller + Send>>) -> Scheduler {
+    let controller_count = controllers.len();
     let (sender, receiver) = channel();
     let join_handles: Vec<JoinHandle<()>> = controllers
       .into_iter()
       .map(|ctrl| start(ctrl, sender.clone()))
       .collect();
 
-    Scheduler {
+    let mut scheduler = Scheduler {
       time: 0,
       receiver,
-      sleepers: HashMap::with_capacity(join_handles.len()),
       join_handles,
-    }
+      sleepers: HashMap::with_capacity(controller_count),
+    };
+
+    // Populate "sleepers" by waiting until all controllers have reached their initial sleep.
+    scheduler.await_sleepers(controller_count);
+    scheduler
   }
 
   /// Wait until we've heard from `expected_count` controllers over the channel, storing their
@@ -117,12 +122,6 @@ impl Scheduler {
   ///
   /// This function must be called on the main thread.
   pub fn advance(&mut self) {
-    if self.time == 0 {
-      // If this is the first timestep, wait until we've populated "sleepers" by waiting until all
-      // controllers have reached their initial sleep.
-      self.await_sleepers(self.join_handles.len());
-    }
-
     self.time += 1;
 
     let mut run_count = 1;
@@ -164,8 +163,7 @@ impl Scheduler {
     }
   }
 
-  /// Tell all controller threads to terminate. This function does not actually wait for the
-  /// threads to terminate, so the caller should join() the threads if it cares about this.
+  /// Tell all controller threads to terminate, and wait for them to exit.
   pub fn end(mut self) {
     self.time = -1;
 
