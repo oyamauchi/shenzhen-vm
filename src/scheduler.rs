@@ -8,7 +8,7 @@ use crate::controller::{current_name, send_to_scheduler, start, Controller};
 use crate::xbus::XBus;
 
 pub(crate) enum SleepToken {
-  Time(i32),
+  Time(u32),
   XBusSleep(XBus),
   XBusRead(XBus),
   XBusWrite(XBus),
@@ -37,7 +37,7 @@ pub(crate) type SleepMessage = (&'static str, SleepToken, Sender<bool>);
 /// Coordinates controllers as they advance through time, starting their threads, waking them up
 /// as their sleep conditions get fulfilled, and shutting down their threads when done.
 pub struct Scheduler {
-  time: i32,
+  time: u32,
   join_handles: Vec<JoinHandle<()>>,
   receiver: Receiver<SleepMessage>,
   sleepers: HashMap<&'static str, (SleepToken, Sender<bool>)>,
@@ -46,7 +46,7 @@ pub struct Scheduler {
 /// Go to sleep until the given number of timesteps has passed.
 /// This function is meant to be called from controller code. Errors should be propagated out of
 /// `Controller::execute`.
-pub fn sleep(steps: i32) -> Result<(), ()> {
+pub fn sleep(steps: u32) -> Result<(), ()> {
   Scheduler::sleep(SleepToken::Time(steps))?;
   Ok(())
 }
@@ -170,9 +170,7 @@ impl Scheduler {
   }
 
   /// Tell all controller threads to terminate, and wait for them to exit.
-  pub fn end(mut self) {
-    self.time = -1;
-
+  pub fn end(self) {
     for (_name, (_, wakeup)) in self.sleepers.iter() {
       wakeup.send(false).unwrap();
     }
