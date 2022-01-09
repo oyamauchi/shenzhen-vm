@@ -5,12 +5,12 @@ use std::sync::{Arc, Mutex};
 use crate::controller::current_name;
 use crate::scheduler::{Scheduler, SleepToken};
 
-pub trait TSource {
+pub(crate) trait TSource {
   fn can_read(&self) -> bool;
   fn read(&self) -> i32;
 }
 
-pub trait TSink {
+pub(crate) trait TSink {
   fn write(&self, _: i32);
 }
 
@@ -42,19 +42,11 @@ impl XBus {
     }
   }
 
-  pub fn connect_source(&self, source: Arc<dyn TSource + Send + Sync>) {
-    self.inner.lock().unwrap().sources.push(source);
-  }
-
-  pub fn connect_sink(&self, sink: Arc<dyn TSink + Send + Sync>) {
-    self.inner.lock().unwrap().sinks.push(sink);
-  }
-
-  pub fn can_read(&self) -> bool {
-    let inner = self.inner.lock().unwrap();
-    !inner.pending_writers.is_empty() || inner.sources.iter().any(|src| src.can_read())
-  }
-
+  /// Sleep until there is a value readable from this XBus.
+  ///
+  /// NB: even after returning from this, immediately reading from the same XBus may block!
+  /// This behavior is the same as in the game: every controller `slx`-ing on a bus will wake up
+  /// when something writes a value onto the bus, even though only one will get to read that value.
   pub fn sleep(&self) -> Result<(), ()> {
     if !self.can_read() {
       Scheduler::sleep(SleepToken::XBusSleep(self.clone()))?;
@@ -117,7 +109,22 @@ impl XBus {
     Ok(())
   }
 
-  pub fn is_read_pending(&self, controller_name: &'static str) -> bool {
+  // Everything below here is crate-internal only.
+
+  pub(crate) fn connect_source(&self, source: Arc<dyn TSource + Send + Sync>) {
+    self.inner.lock().unwrap().sources.push(source);
+  }
+
+  pub(crate) fn connect_sink(&self, sink: Arc<dyn TSink + Send + Sync>) {
+    self.inner.lock().unwrap().sinks.push(sink);
+  }
+
+  pub(crate) fn can_read(&self) -> bool {
+    let inner = self.inner.lock().unwrap();
+    !inner.pending_writers.is_empty() || inner.sources.iter().any(|src| src.can_read())
+  }
+
+  pub(crate) fn is_read_pending(&self, controller_name: &'static str) -> bool {
     self
       .inner
       .lock()
@@ -126,7 +133,7 @@ impl XBus {
       .contains_key(controller_name)
   }
 
-  pub fn is_write_pending(&self, controller_name: &'static str) -> bool {
+  pub(crate) fn is_write_pending(&self, controller_name: &'static str) -> bool {
     self
       .inner
       .lock()

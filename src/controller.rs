@@ -1,18 +1,32 @@
+use std::cell::RefCell;
+use std::mem::MaybeUninit;
 use std::sync::mpsc::Sender;
 use std::thread;
-use std::{cell::RefCell, mem::MaybeUninit};
 
 use crate::scheduler::{Scheduler, SleepMessage, SleepToken};
 
-/// A controller's state that persists across repeated executions of its body closure.
+/// A controller's state that persists across repeated executions of its `execute` function.
 #[derive(Debug)]
 pub struct Regs {
   pub acc: i32,
   pub dat: i32,
 }
 
+/// Represents a controller with code.
+///
+/// Each controller is run on its own thread, so they have to implement `Send`. If a controller is
+/// implemented in the spirit of the game, its only fields will be of `Send` types `XBus` and
+/// `Arc<AtomicI32>`, so this will take care of itself.
 pub trait Controller {
+  /// Returns the name of the controller. This is used to name the thread, and as a unique key for
+  /// when the thread is queueing in the scheduler.
   fn name(&self) -> &'static str;
+
+  /// The controller's code. The `acc` and `dat` registers are passed in as a struct. It should
+  /// return `Ok(())` at the end, and propagate errors from any Result-returning function it calls
+  /// (i.e. `sleep`, `XBus::sleep`, `XBus::read`, and `XBus::write`).
+  ///
+  /// This function will be executed repeatedly until the Scheduler running the controller ends.
   fn execute(&self, _: &mut Regs) -> Result<(), ()>;
 }
 
@@ -25,11 +39,11 @@ thread_local! {
   static SENDER: RefCell<MaybeUninit<Sender<SleepMessage>>> = RefCell::new(MaybeUninit::uninit());
 }
 
-pub fn current_name() -> &'static str {
+pub(crate) fn current_name() -> &'static str {
   CONTROLLER_NAME.with(|cell| *cell.borrow())
 }
 
-pub fn send_to_scheduler(message: SleepMessage) {
+pub(crate) fn send_to_scheduler(message: SleepMessage) {
   SENDER.with(|cell| {
     unsafe { cell.borrow().assume_init_ref() }
       .send(message)
@@ -37,7 +51,7 @@ pub fn send_to_scheduler(message: SleepMessage) {
   })
 }
 
-pub fn start(
+pub(crate) fn start(
   ctrl: Box<dyn Controller + Send>,
   sender: Sender<SleepMessage>,
 ) -> thread::JoinHandle<()> {

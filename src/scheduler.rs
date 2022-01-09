@@ -7,7 +7,7 @@ use std::time::Duration;
 use crate::controller::{current_name, send_to_scheduler, start, Controller};
 use crate::xbus::XBus;
 
-pub enum SleepToken {
+pub(crate) enum SleepToken {
   Time(i32),
   XBusSleep(XBus),
   XBusRead(XBus),
@@ -32,8 +32,10 @@ fn is_blocking(token: &SleepToken) -> bool {
   }
 }
 
-pub type SleepMessage = (&'static str, SleepToken, Sender<bool>);
+pub(crate) type SleepMessage = (&'static str, SleepToken, Sender<bool>);
 
+/// Coordinates controllers as they advance through time, starting their threads, waking them up
+/// as their sleep conditions get fulfilled, and shutting down their threads when done.
 pub struct Scheduler {
   time: i32,
   join_handles: Vec<JoinHandle<()>>,
@@ -41,6 +43,9 @@ pub struct Scheduler {
   sleepers: HashMap<&'static str, (SleepToken, Sender<bool>)>,
 }
 
+/// Go to sleep until the given number of timesteps has passed.
+/// This function is meant to be called from controller code. Errors should be propagated out of
+/// `Controller::execute`.
 pub fn sleep(steps: i32) -> Result<(), ()> {
   Scheduler::sleep(SleepToken::Time(steps))?;
   Ok(())
@@ -52,7 +57,7 @@ impl Scheduler {
   /// be propagated up to the top level of the thread.
   ///
   /// This function runs on controller threads.
-  pub fn sleep(token: SleepToken) -> Result<(), ()> {
+  pub(crate) fn sleep(token: SleepToken) -> Result<(), ()> {
     let (wakeup_sender, wakeup_receiver) = channel();
     let name = current_name();
 
@@ -115,7 +120,8 @@ impl Scheduler {
 
   /// Advance the current timestep number, then continuously wake up controller threads whose
   /// sleep conditions are fulfilled (right time reached, XBus now readable, etc.) until none of
-  /// them are runnable.
+  /// them are runnable. If any threads are blocking on an XBus read or write when all become
+  /// non-runnable, panic (this indicates a deadlock).
   ///
   /// When a controller is created with `Controller::start`, its body will not execute until this
   /// function is called for the first time.
