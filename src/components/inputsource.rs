@@ -8,6 +8,8 @@ enum InputSourceType {
   NonBlocking,
 }
 
+/// Puts program input onto an XBus. Internally maintains a queue of values, and can be created as
+/// either blocking or nonblocking.
 pub struct InputSource {
   source_type: InputSourceType,
   queue: Mutex<VecDeque<i32>>,
@@ -24,17 +26,19 @@ fn make(source_type: InputSourceType) -> (Arc<InputSource>, XBus) {
   (source, bus)
 }
 
+/// Creates a blocking source. Reading while the queue is empty will block. Returns an `Arc` of the
+/// source itself (to call `inject` on), and an XBus with the source connected.
 pub fn blocking() -> (Arc<InputSource>, XBus) {
   make(InputSourceType::Blocking)
 }
 
+/// Creates a nonblocking source. Reading while the queue is empty will produce the value -999.
+/// Returns an `Arc` of the source itself (to call `inject` on), and an XBus with the source
+/// connected.
 pub fn nonblocking() -> (Arc<InputSource>, XBus) {
   make(InputSourceType::NonBlocking)
 }
 
-/// Puts program input onto an XBus. Internally maintains a queue of values, and can be created as
-/// either blocking or nonblocking. In blocking mode, reading while the queue is empty will block.
-/// In nonblocking mode, reading while the queue is empty produces the value -999.
 impl InputSource {
   /// Add a value to the queue. Unlike controllers' XBus writes, it's not an error for these values
   /// to stay in the queue across timesteps.
