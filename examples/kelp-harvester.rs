@@ -5,7 +5,7 @@ use shenzhen_vm::components::{inputsource, memory};
 use shenzhen_vm::controller::{Controller, Regs};
 use shenzhen_vm::scheduler::{sleep, Scheduler};
 use shenzhen_vm::xbus::XBus;
-use shenzhen_vm::{dgt, dst, rd};
+use shenzhen_vm::{dgt, dst, gen, rd};
 
 fn get_input() -> Vec<(i32, i32, i32)> {
   vec![
@@ -131,9 +131,7 @@ impl Controller for Splitter {
     dst!(reg.acc, 1, self.to_motor_x.read()?);
     dst!(reg.acc, 0, self.to_motor_y.read()?);
 
-    if reg.dat == 0 {
-      self.to_searcher.write(999)?;
-    } else {
+    if reg.dat != 0 {
       self.to_searcher.write(reg.acc)?;
     }
 
@@ -159,8 +157,6 @@ impl Controller for Searcher {
     reg.acc = self.io.read()?;
     reg.dat = self.ram_read_addr.read()?;
 
-    self.harvest.store(0, Ordering::Relaxed);
-
     loop {
       if reg.acc == self.ram_read_data.read()? {
         // Found the value. Go back and overwrite it with zero.
@@ -168,7 +164,7 @@ impl Controller for Searcher {
         reg.acc -= 1;
         self.ram_read_addr.write(reg.acc)?;
         self.ram_read_data.write(0)?;
-        self.harvest.store(100, Ordering::Relaxed);
+        gen!(self.harvest, 1, 0);
         break;
       }
 
