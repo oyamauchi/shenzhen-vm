@@ -78,3 +78,49 @@ where
       .unwrap()
   }
 }
+
+#[macro_export]
+macro_rules! dgt {
+  ($acc:expr, $index:expr) => {
+    $acc = match $index {
+      0 => $acc % 10,
+      1 => ($acc / 10) % 10,
+      2 => $acc / 100,
+      _ => 0,
+    }
+  };
+}
+
+#[macro_export]
+macro_rules! dst {
+  ($acc:expr, $index:expr, $value:expr) => {
+    let digit = $value % 10;
+    $acc = match $index {
+      0 => ($acc / 10) * 10 + digit,
+      1 => ($acc / 100) * 100 + (digit * 10) + $acc % 10,
+      2 => (digit * 100) + ($acc % 100),
+      _ => $acc,
+    }
+  };
+}
+
+#[macro_export]
+macro_rules! gen {
+  ($pin:ident, $on_steps:expr, $off_steps:expr) => {
+    if $on_steps > 0 {
+      $pin.store(100, Ordering::Relaxed);
+      sleep($on_steps)?;
+    }
+    $pin.store(0, Ordering::Relaxed);
+    if $off_steps > 0 {
+      sleep($off_steps)?;
+    }
+  };
+}
+
+#[macro_export]
+macro_rules! rd {
+  ($arc_atomic:expr) => {
+    $arc_atomic.load(Ordering::Relaxed)
+  };
+}

@@ -7,18 +7,7 @@ use shenzhen_vm::components::{expander, inputsource, memory};
 use shenzhen_vm::controller::Controller;
 use shenzhen_vm::scheduler::{sleep, Scheduler};
 use shenzhen_vm::xbus::XBus;
-
-fn gen(pin: &AtomicI32, on_steps: i32, off_steps: i32) -> Result<(), ()> {
-  if on_steps > 0 {
-    pin.store(100, Ordering::Relaxed);
-    sleep(on_steps)?;
-  }
-  pin.store(0, Ordering::Relaxed);
-  if off_steps > 0 {
-    sleep(off_steps)?;
-  }
-  Ok(())
-}
+use shenzhen_vm::{gen, rd};
 
 fn main() {
   let p0 = Arc::new(AtomicI32::new(0));
@@ -54,7 +43,7 @@ fn main() {
       _ => panic!("{} is not a valid keypad input", value),
     }
 
-    gen(&extrude, 7, 0)?;
+    gen!(extrude, 7, 0);
     expander.x1.write(0)?;
 
     Ok(())
@@ -89,10 +78,10 @@ fn main() {
 
     println!(
       "output: {:3} {:3} {:3} {:3}",
-      p0.load(Ordering::Relaxed),
-      p1.load(Ordering::Relaxed),
-      p2.load(Ordering::Relaxed),
-      extrude_clone.load(Ordering::Relaxed)
+      rd!(p0),
+      rd!(p1),
+      rd!(p2),
+      rd!(extrude_clone)
     );
     scheduler.advance();
     timestep += 1;
