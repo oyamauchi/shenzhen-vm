@@ -1,5 +1,5 @@
 //! An environment that mimics the behavior of the game SHENZHEN I/O by Zachtronics.
-//! https://www.zachtronics.com/shenzhen-io/
+//! <https://www.zachtronics.com/shenzhen-io/>
 //!
 //! This library isn't intended to strictly reimplement the game, but rather to provide a similar
 //! and more flexible environment, so you can solve harder levels by first writing a more natural
