@@ -14,6 +14,31 @@ pub struct Regs {
   pub dat: i32,
 }
 
+impl Regs {
+  /// Set the value of acc to the specified digit of the current value of acc. Index 0 is the ones
+  /// digit, 1 is the tens digit, and 2 is the hundreds digit.
+  pub fn dgt(&mut self, index: usize) {
+    self.acc = match index {
+      0 => self.acc % 10,
+      1 => (self.acc / 10) % 10,
+      2 => self.acc / 100,
+      _ => 0,
+    };
+  }
+
+  /// Set a single digit in the value of acc. If the given value is greater than 9, its ones digit
+  /// is used. The index is specified in the same way as in the `dgt` macro.
+  pub fn dst(&mut self, index: usize, value: i32) {
+    let digit = value % 10;
+    self.acc = match index {
+      0 => (self.acc / 10) * 10 + digit,
+      1 => (self.acc / 100) * 100 + (digit * 10) + self.acc % 10,
+      2 => (digit * 100) + (self.acc % 100),
+      _ => self.acc,
+    };
+  }
+}
+
 /// Represents a controller with code.
 ///
 /// Each controller is run on its own thread, so they have to implement `Send`. If a controller is
@@ -81,31 +106,11 @@ pub(crate) fn start(
     .unwrap()
 }
 
-#[macro_export]
-macro_rules! dgt {
-  ($acc:expr, $index:expr) => {
-    $acc = match $index {
-      0 => $acc % 10,
-      1 => ($acc / 10) % 10,
-      2 => $acc / 100,
-      _ => 0,
-    }
-  };
-}
-
-#[macro_export]
-macro_rules! dst {
-  ($acc:expr, $index:expr, $value:expr) => {
-    let digit = $value % 10;
-    $acc = match $index {
-      0 => ($acc / 10) * 10 + digit,
-      1 => ($acc / 100) * 100 + (digit * 10) + $acc % 10,
-      2 => (digit * 100) + ($acc % 100),
-      _ => $acc,
-    }
-  };
-}
-
+/// Mimics the gen instruction in the game (spoiler?).
+///
+/// It generates a pulse on the given simple input, 100 for `on_steps` timesteps, and 0 for
+/// `off_steps` timesteps. After the macro runs, the pin will always be set to 0, even if
+/// `off_steps` was zero.
 #[macro_export]
 macro_rules! gen {
   ($pin:expr, $on_steps:expr, $off_steps:expr) => {
@@ -120,6 +125,7 @@ macro_rules! gen {
   };
 }
 
+/// A convenience macro for reading from an `AtomicI32` (inside an `Arc` or not).
 #[macro_export]
 macro_rules! rd {
   ($arc_atomic:expr) => {

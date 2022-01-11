@@ -5,7 +5,7 @@ use shenzhen_vm::components::{inputsource, memory};
 use shenzhen_vm::controller::{Controller, Regs};
 use shenzhen_vm::scheduler::{sleep, Scheduler};
 use shenzhen_vm::xbus::XBus;
-use shenzhen_vm::{dgt, dst, gen, rd};
+use shenzhen_vm::{gen, rd};
 
 fn get_input() -> Vec<(i32, i32, i32)> {
   vec![
@@ -123,13 +123,13 @@ impl Controller for Splitter {
       reg.acc = reg.dat;
     }
 
-    dgt!(reg.acc, 1);
+    reg.dgt(1);
     self.to_motor_x.write(reg.acc)?;
-    dst!(reg.acc, 0, reg.dat);
+    reg.dst(0, reg.dat);
     self.to_motor_y.write(reg.acc)?;
 
-    dst!(reg.acc, 1, self.to_motor_x.read()?);
-    dst!(reg.acc, 0, self.to_motor_y.read()?);
+    reg.dst(1, self.to_motor_x.read()?);
+    reg.dst(0, self.to_motor_y.read()?);
 
     if reg.dat != 0 {
       self.to_searcher.write(reg.acc)?;
