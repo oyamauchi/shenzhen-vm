@@ -32,8 +32,8 @@ See the `examples`. The general idea is:
    a controller-to-controller XBus, just call `XBus::new()`.
 3. Also in `main()`, instantiate your structs, passing in clones of the buses
    you just created.
-4. Pass those structs to `Scheduler::new`, then call `Scheduler::advanced` to
-   run them.
+4. Pass those structs to `Scheduler::new`, then call `Scheduler::advance` to run
+   them.
 5. Call `Scheduler::end` to shut down the threads.
 
 ## Known Issues
