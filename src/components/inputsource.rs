@@ -1,3 +1,5 @@
+//! For putting program input onto an XBus.
+
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 

@@ -1,3 +1,5 @@
+//! RAM and ROM components from the game (14 cells, two independent pointers).
+
 use std::fmt::{Debug, Write};
 use std::sync::{Arc, Mutex};
 

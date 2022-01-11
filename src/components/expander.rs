@@ -1,3 +1,5 @@
+//! The component that translates between XBuses and three simple I/O pins.
+
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 

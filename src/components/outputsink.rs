@@ -1,3 +1,5 @@
+//! For printing program output.
+
 use crate::xbus::TSink;
 
 pub struct OutputSink {
