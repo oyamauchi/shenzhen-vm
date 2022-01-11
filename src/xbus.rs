@@ -1,3 +1,5 @@
+//! Logic to model reading from and writing to an XBus.
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};

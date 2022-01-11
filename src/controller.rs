@@ -1,3 +1,5 @@
+//! A trait representing controllers, plus a few macros mimicking complex game instructions.
+
 use std::cell::RefCell;
 use std::mem::MaybeUninit;
 use std::sync::mpsc::Sender;

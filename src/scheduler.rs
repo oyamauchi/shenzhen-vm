@@ -1,3 +1,5 @@
+//! Logic to run controllers in threads and coordinate their execution.
+
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::sync::mpsc::{channel, Receiver, Sender};
