@@ -1,34 +1,14 @@
+use std::collections::HashMap;
+use std::fs::File;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 
 use shenzhen_vm::components::{inputsource, memory};
 use shenzhen_vm::controller::{Controller, Regs};
+use shenzhen_vm::filerunner::{FileRunner, InputBus, OutputBus};
+use shenzhen_vm::gen;
 use shenzhen_vm::scheduler::{sleep, Scheduler};
 use shenzhen_vm::xbus::XBus;
-use shenzhen_vm::{gen, rd};
-
-fn get_input() -> Vec<(i32, i32, i32)> {
-  vec![
-    (2, 7, 4),
-    (2, 9, 4),
-    (2, 8, 5),
-    (2, 7, 6),
-    (3, 8, 2),
-    (2, 7, 3),
-    (2, 1, 1),
-    (2, 1, 0),
-    (2, 4, 5),
-    (2, 1, 3),
-    (2, 0, 4),
-    (3, 1, 7),
-    (4, 6, 8),
-    (2, 7, 7),
-    (2, 9, 2),
-    (2, 8, 1),
-    (0, 9, 5),
-    (2, 7, 0),
-  ]
-}
 
 /// Read two consecutive inputs from the radio, pack them into a single int, and write them into
 /// RAM at the write pointer. Send the updated write pointer to the Peeker.
@@ -273,24 +253,22 @@ fn main() {
     }),
   ]);
 
-  let input = get_input();
+  let mut file = File::open("examples/kelp-harvester.csv").unwrap();
+  let mut runner = FileRunner::new(&mut file).unwrap();
 
-  for (wait, xin, yin) in input.iter() {
-    for _ in 0..wait - 1 {
-      scheduler.advance();
-      println!("{:3} {:3} {:3}", rd!(motor_x), rd!(motor_y), rd!(harvest));
-    }
+  let count = runner
+    .verify(
+      &mut scheduler,
+      HashMap::from([("radio", InputBus::XBus(&radio))]),
+      HashMap::from([
+        ("x", OutputBus::Simple(&motor_x)),
+        ("y", OutputBus::Simple(&motor_y)),
+        ("harvest", OutputBus::Simple(&harvest)),
+      ]),
+    )
+    .unwrap();
 
-    radio.inject(*xin);
-    radio.inject(*yin);
-    scheduler.advance();
-    println!("{:3} {:3} {:3}", rd!(motor_x), rd!(motor_y), rd!(harvest));
-  }
-
-  for _ in 0..12 {
-    scheduler.advance();
-    println!("{:3} {:3} {:3}", rd!(motor_x), rd!(motor_y), rd!(harvest));
-  }
+  println!("Verified {} timesteps", count);
 
   scheduler.end();
 }

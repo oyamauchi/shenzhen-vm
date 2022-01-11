@@ -1,13 +1,16 @@
 extern crate shenzhen_vm;
 
+use std::collections::HashMap;
+use std::fs::File;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 
 use shenzhen_vm::components::{expander, inputsource, memory};
 use shenzhen_vm::controller::{Controller, Regs};
+use shenzhen_vm::filerunner::{FileRunner, InputBus, OutputBus};
+use shenzhen_vm::gen;
 use shenzhen_vm::scheduler::{sleep, Scheduler};
 use shenzhen_vm::xbus::XBus;
-use shenzhen_vm::{gen, rd};
 
 fn main() {
   let p0 = Arc::new(AtomicI32::new(0));
@@ -96,26 +99,23 @@ fn main() {
     }),
   ]);
 
-  let mut timestep = 0;
+  let mut f = File::open("examples/meat-based-printer.csv").unwrap();
+  let mut runner = FileRunner::new(&mut f).unwrap();
 
-  while timestep < 40 {
-    match timestep {
-      2 => keypad.inject(1),
-      13 => keypad.inject(2),
-      25 => keypad.inject(3),
-      _ => (),
-    };
+  let num_steps_verified = runner
+    .verify(
+      &mut scheduler,
+      HashMap::from([("keypad", InputBus::XBus(&keypad))]),
+      HashMap::from([
+        ("p0", OutputBus::Simple(&p0)),
+        ("p1", OutputBus::Simple(&p1)),
+        ("p2", OutputBus::Simple(&p2)),
+        ("extrude", OutputBus::Simple(&extrude)),
+      ]),
+    )
+    .unwrap();
 
-    println!(
-      "{:3} {:3} {:3} {:3}",
-      rd!(p0),
-      rd!(p1),
-      rd!(p2),
-      rd!(extrude)
-    );
-    scheduler.advance();
-    timestep += 1;
-  }
+  println!("Verified {} timesteps", num_steps_verified);
 
   scheduler.end();
 }
