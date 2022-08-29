@@ -55,6 +55,7 @@ impl XBus {
   /// NB: even after returning from this, immediately reading from the same XBus may block!
   /// This behavior is the same as in the game: every controller `slx`-ing on a bus will wake up
   /// when something writes a value onto the bus, even though only one will get to read that value.
+  #[allow(clippy::result_unit_err)]
   pub fn sleep(&self) -> Result<(), ()> {
     if !self.can_read() {
       Scheduler::sleep(SleepToken::XBusSleep(self.clone()))?;
@@ -63,6 +64,7 @@ impl XBus {
   }
 
   /// For controller code: read from the bus, blocking until a value is available.
+  #[allow(clippy::result_unit_err)]
   pub fn read(&self) -> Result<i32, ()> {
     // The eventual writer will put its value in here.
     let cell: Arc<AtomicI32>;
@@ -72,8 +74,8 @@ impl XBus {
 
       // If there's a pending write from another component, just take it.
       if !xbus.pending_writers.is_empty() {
-        let key = xbus.pending_writers.iter().next().unwrap().0.clone();
-        let value = xbus.pending_writers.remove(&key).unwrap();
+        let key = *xbus.pending_writers.iter().next().unwrap().0;
+        let value = xbus.pending_writers.remove(key).unwrap();
         return Ok(value);
       }
 
@@ -95,14 +97,15 @@ impl XBus {
   }
 
   /// For controller code: write to the bus, blocking until something else consumes it.
+  #[allow(clippy::result_unit_err)]
   pub fn write(&self, val: i32) -> Result<(), ()> {
     {
       let mut xbus = self.inner.lock().unwrap();
 
       // If there's a reader already waiting, give it our value.
       if !xbus.pending_readers.is_empty() {
-        let key = xbus.pending_readers.iter().next().unwrap().0.clone();
-        let cell = xbus.pending_readers.remove(&key).unwrap();
+        let key = *xbus.pending_readers.iter().next().unwrap().0;
+        let cell = xbus.pending_readers.remove(key).unwrap();
         cell.store(val, Ordering::Relaxed);
         return Ok(());
       }
