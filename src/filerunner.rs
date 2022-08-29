@@ -84,11 +84,9 @@ impl<'a> FileRunner<'a> {
     let mut outputs = vec![];
 
     for (index, field_spec) in field_specs.into_iter().enumerate() {
-      if field_spec.starts_with("in ") {
-        let name = &field_spec[3..];
+      if let Some(name) = field_spec.strip_prefix("in ") {
         inputs.push((index, String::from(name)));
-      } else if field_spec.starts_with("out ") {
-        let name = &field_spec[4..];
+      } else if let Some(name) = field_spec.strip_prefix("out ") {
         outputs.push((index, String::from(name)));
       } else {
         return Err(std::io::Error::new(
@@ -138,7 +136,7 @@ impl<'a> FileRunner<'a> {
 
       for (index, name) in self.inputs.iter() {
         let value_from_file = split_line[*index];
-        if value_from_file.len() == 0 {
+        if value_from_file.is_empty() {
           continue;
         }
 
@@ -149,7 +147,7 @@ impl<'a> FileRunner<'a> {
             return error!("Expected input bus '{}', but not present", name);
           }
           Some(InputBus::Simple(atomic)) => {
-            if values.len() == 0 {
+            if values.is_empty() {
               continue;
             } else if values.len() > 1 {
               return error!(
@@ -172,7 +170,7 @@ impl<'a> FileRunner<'a> {
 
       for (index, name) in self.outputs.iter() {
         let value_from_file = split_line[*index];
-        let expected: Vec<&str> = if value_from_file.len() > 0 {
+        let expected: Vec<&str> = if !value_from_file.is_empty() {
           value_from_file.split(' ').collect()
         } else {
           vec![]
@@ -183,7 +181,7 @@ impl<'a> FileRunner<'a> {
             return error!("Expected output bus '{}', but not present", name);
           }
           Some(OutputBus::Simple(atomic)) => {
-            if expected.len() == 0 {
+            if expected.is_empty() {
               continue;
             } else if expected.len() > 1 {
               return error!(
