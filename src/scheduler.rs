@@ -48,6 +48,7 @@ pub struct Scheduler {
 /// Go to sleep until the given number of timesteps has passed.
 /// This function is meant to be called from controller code. Errors should be propagated out of
 /// `Controller::execute`.
+#[allow(clippy::result_unit_err)]
 pub fn sleep(steps: u32) -> Result<(), ()> {
   Scheduler::sleep(SleepToken::Time(steps))?;
   Ok(())
@@ -157,13 +158,7 @@ impl Scheduler {
     // Before we can conclude the timestep, all controllers must be sleeping until a target time
     // ("slp") or sleeping on an XBus ("slx"); they can't be blocked trying to read or write a
     // value to an XBus. If some modules are blocked, there's a deadlock: fail the execution.
-    let blockers: Vec<&str> = self
-      .sleepers
-      .iter()
-      .filter(|(_, v)| is_blocking(&v.0))
-      .map(|(name, _)| *name)
-      .collect();
-    if !blockers.is_empty() {
+    if self.sleepers.iter().any(|(_, v)| is_blocking(&v.0)) {
       panic!(
         "No modules are runnable but some are blocking: {:?}",
         self.sleepers
