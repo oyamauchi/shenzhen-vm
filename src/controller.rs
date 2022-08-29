@@ -54,6 +54,7 @@ pub trait Controller {
   /// (i.e. `sleep`, `XBus::sleep`, `XBus::read`, and `XBus::write`).
   ///
   /// This function will be executed repeatedly until the Scheduler running the controller ends.
+  #[allow(clippy::result_unit_err)]
   fn execute(&self, _: &mut Regs) -> Result<(), ()>;
 }
 
@@ -96,12 +97,7 @@ pub(crate) fn start(
 
       let mut state = Regs { acc: 0, dat: 0 };
 
-      loop {
-        match ctrl.execute(&mut state) {
-          Ok(_) => (),
-          Err(_) => break,
-        }
-      }
+      while ctrl.execute(&mut state).is_ok() {}
     })
     .unwrap()
 }
